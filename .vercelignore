@@ -1,0 +1,10 @@
+# Vercel Deployment Ignore Rules
+.git
+.gitignore
+*.py
+backend/
+requirements.txt
+PDF_CleanSpace_Desktop_Package.zip
+Create_Desktop_Shortcut.bat
+Launch_PDF_CleanSpace.bat
+operator_stats.json
