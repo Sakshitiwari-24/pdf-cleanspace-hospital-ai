@@ -3400,7 +3400,49 @@ async function savePacketViaServer(pk) {
       }
     } catch (e) {}
   }
-  throw new Error('Local server /api/save-to-disk unavailable');
+
+  // Option B: Browser File System Access API (when user granted folder access via 📁 Browse)
+  if (!savedDirectoryHandle) {
+    savedDirectoryHandle = await getStoredDirectoryHandle();
+  }
+  if (savedDirectoryHandle) {
+    try {
+      if (savedDirectoryHandle.queryPermission) {
+        let perm = await savedDirectoryHandle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') perm = await savedDirectoryHandle.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') throw new Error('Folder permission not granted');
+      }
+      let currHandle = savedDirectoryHandle;
+      if (pk.needsReview) {
+        currHandle = await currHandle.getDirectoryHandle('_NEEDS_REVIEW', { create: true });
+      } else {
+        const parsedDate = parseRecordDate(pk.metadata.recordDate);
+        const rawCat = pk.metadata.category || 'Employee';
+        for (const part of [rawCat, parsedDate.yearStr, parsedDate.monthNameStr, parsedDate.dayStr]) {
+          currHandle = await currHandle.getDirectoryHandle(part, { create: true });
+        }
+      }
+      const fileHandle = await currHandle.getFileHandle(target.filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(pdfBytes);
+      await writable.close();
+
+      pk.savedStatus = pk.needsReview ? 'review_saved' : 'saved';
+      pk.savedPath = target.fullPath;
+      logProcessedFileEvent(target.fullPath, retainedCount, blankCount, 'auto');
+      return target.fullPath;
+    } catch (e) {
+      console.log('Directory handle packet write failed:', e);
+    }
+  }
+
+  // Option C: Browser Blob Download fallback
+  const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+  downloadBlob(pdfBlob, target.filename);
+  pk.savedStatus = pk.needsReview ? 'review_saved' : 'saved';
+  pk.savedPath = `Downloads/${target.filename}`;
+  logProcessedFileEvent(pk.savedPath, retainedCount, blankCount, 'manual');
+  return pk.savedPath;
 }
 
 async function ensureBaseDirConfigured() {
