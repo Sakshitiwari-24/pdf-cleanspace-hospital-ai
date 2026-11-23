@@ -304,19 +304,32 @@ async function callVisionAI(imageBase64, provider = 'gemini', apiKey = '', model
   const prov = (provider || 'gemini').toLowerCase().trim();
 
   if (prov === 'gemini') {
-    const mod = model || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(mod)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const data = await httpsPostJson(url, {
-      contents: [{
-        parts: [
-          { text: HOSPITAL_VISION_PROMPT },
-          { inline_data: { mime_type: mimeType, data: cleanBase64 } }
-        ]
-      }],
-      generationConfig: { response_mime_type: 'application/json', temperature: 0 }
-    });
-    const textOut = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return extractJsonFromText(textOut);
+    const candidates = [model, 'gemini-3.8-flash', 'gemini-2.5-flash'].filter(Boolean);
+    const uniqueModels = [...new Set(candidates)];
+    let lastErr = null;
+    for (const mod of uniqueModels) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(mod)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const data = await httpsPostJson(url, {
+            contents: [{
+              parts: [
+                { text: HOSPITAL_VISION_PROMPT },
+                { inline_data: { mime_type: mimeType, data: cleanBase64 } }
+              ]
+            }],
+            generationConfig: { response_mime_type: 'application/json', temperature: 0 }
+          });
+          const textOut = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          return extractJsonFromText(textOut);
+        } catch (err) {
+          lastErr = err;
+          if (!String(err.message).includes('503') && !String(err.message).includes('429')) break;
+          await new Promise(r => setTimeout(r, 1200));
+        }
+      }
+    }
+    throw lastErr || new Error('Gemini API call failed');
   }
 
   if (prov === 'openai' || prov === 'groq' || prov === 'openrouter') {
@@ -527,6 +540,28 @@ function requestHandler(req, res) {
     return;
   }
 
+  // API Endpoint: Check if Server/Vercel AI Key is configured
+  if (req.method === 'GET' && reqUrl === '/api/ai-status') {
+    let localCfgKey = '';
+    try {
+      const cfgPath = path.join(__dirname, 'ai_config.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        localCfgKey = (cfg.geminiApiKey || cfg.apiKey || '').trim();
+      }
+    } catch (e) {}
+    const hasServerKey = Boolean(
+      localCfgKey ||
+      (process.env.GEMINI_API_KEY || '').trim() ||
+      (process.env.OPENAI_API_KEY || '').trim() ||
+      (process.env.GROQ_API_KEY || '').trim() ||
+      (process.env.ANTHROPIC_API_KEY || '').trim()
+    );
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, hasServerKey }));
+    return;
+  }
+
   // API Endpoint: AI Vision Page Analyzer (Blank, Rotation, Admission Card Boundary & Patient Details)
   if (req.method === 'POST' && reqUrl === '/api/ai-analyze-page') {
     let bodyData = '';
@@ -542,7 +577,16 @@ function requestHandler(req, res) {
           return;
         }
 
-        const resolvedKey = (apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+        let localCfgKey = '';
+        try {
+          const cfgPath = path.join(__dirname, 'ai_config.json');
+          if (fs.existsSync(cfgPath)) {
+            const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+            localCfgKey = (cfg.geminiApiKey || cfg.apiKey || '').trim();
+          }
+        } catch (e) {}
+
+        const resolvedKey = (apiKey || localCfgKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
         if (!resolvedKey) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing AI API Key. Please configure it in AI Settings.' }));

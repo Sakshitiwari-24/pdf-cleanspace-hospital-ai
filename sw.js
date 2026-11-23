@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pdf-cleanspace-v50-operator-counter-system';
+const CACHE_NAME = 'pdf-cleanspace-v52-hospital-ai';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

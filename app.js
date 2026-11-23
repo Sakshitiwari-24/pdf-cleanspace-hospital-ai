@@ -27,6 +27,7 @@ let aiSettings = {
   model: localStorage.getItem('hospital_ai_model') || '',
   apiKey: localStorage.getItem('hospital_ai_api_key') || ''
 };
+let aiHasServerKey = false;
 let patientPackets = [];
 let activePacketIndex = -1;
 
@@ -431,7 +432,7 @@ async function processPdfInBrowser(uint8ArrayData) {
 
     // Render a crisp JPEG for Vision AI if Hospital AI Auto-Pilot is active
     let aiImageBase64 = null;
-    if (aiSettings.enabled && aiSettings.apiKey) {
+    if (aiSettings.enabled && (aiSettings.apiKey || aiHasServerKey)) {
       const aiViewport = page.getViewport({ scale: 1.15 });
       const aiCanvas = document.createElement('canvas');
       aiCanvas.width = aiViewport.width;
@@ -470,7 +471,7 @@ async function processPdfInBrowser(uint8ArrayData) {
   // AI METADATA EXTRACTION (Employee / Family / Retired)
   extractDocumentMetadata(fullExtractedText);
 
-  if (aiSettings.enabled && aiSettings.apiKey) {
+  if (aiSettings.enabled && (aiSettings.apiKey || aiHasServerKey)) {
     await runHospitalAiPipeline();
   } else {
     patientPackets = [];
@@ -478,7 +479,7 @@ async function processPdfInBrowser(uint8ArrayData) {
     renderPatientPacketsBar();
     onScanCompleted();
     hideLoading();
-    if (aiSettings.enabled && !aiSettings.apiKey) {
+    if (aiSettings.enabled && !aiSettings.apiKey && !aiHasServerKey) {
       showToast('⚠️ Configure AI API Key in ⚙️ AI Settings for handwritten/scanned Auto-Pilot', 'info');
     }
   }
@@ -762,9 +763,21 @@ function updateAllPreviews() {
 
 function updateSmartRenameUI() {
   const catSelect = document.getElementById("rename-category");
-  if (catSelect && extractedMetadata.category) {
-    catSelect.value = extractedMetadata.category;
-  }
+  const sName = document.getElementById("rename-person-name");
+  const sGender = document.getElementById("rename-gender");
+  const sAge = document.getElementById("rename-age");
+  const sId = document.getElementById("rename-ref-id");
+  const sDate = document.getElementById("rename-date-picker");
+  const sBase = document.getElementById("rename-base-dir");
+
+  if (catSelect && extractedMetadata.category) catSelect.value = extractedMetadata.category;
+  if (sName && extractedMetadata.personName !== undefined) sName.value = extractedMetadata.personName;
+  if (sGender && extractedMetadata.gender) sGender.value = extractedMetadata.gender;
+  if (sAge && extractedMetadata.age !== undefined) sAge.value = extractedMetadata.age;
+  if (sId && extractedMetadata.refNo !== undefined) sId.value = extractedMetadata.refNo;
+  if (sDate && extractedMetadata.recordDate) sDate.value = extractedMetadata.recordDate;
+  if (sBase && extractedMetadata.baseDir) sBase.value = extractedMetadata.baseDir;
+
   updateAllPreviews();
 }
 
@@ -1765,6 +1778,10 @@ async function selectLocalBaseDirectory() {
 
 // Export Cleaned PDF File with 1-Click Auto Save OR Manual Folder Selection
 async function exportCleanedPdf(saveMode = 'auto') {
+  if (saveMode === 'auto' && patientPackets && patientPackets.length > 0) {
+    await saveAllVerifiedPackets();
+    return;
+  }
   if (!pagesData || pagesData.length === 0) {
     alert("Please upload a PDF document first.");
     return;
@@ -2884,6 +2901,24 @@ function initAiSettingsUI() {
   if (enEl) enEl.checked = aiSettings.enabled;
   if (modeEl) modeEl.value = aiSettings.runMode;
   updateAiKeyBadgeUI();
+  checkServerAiStatus();
+}
+
+async function checkServerAiStatus() {
+  const endpoints = ['/api/ai-status', 'http://localhost:8000/api/ai-status', 'http://127.0.0.1:8000/api/ai-status'];
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.hasServerKey) {
+          aiHasServerKey = true;
+          updateAiKeyBadgeUI();
+          return;
+        }
+      }
+    } catch (e) {}
+  }
 }
 
 function updateAiKeyBadgeUI() {
@@ -2891,6 +2926,11 @@ function updateAiKeyBadgeUI() {
   if (!badge) return;
   if (aiSettings.apiKey) {
     badge.innerText = `✓ AI Ready (${aiSettings.provider.toUpperCase()})`;
+    badge.style.background = '#ecfdf5';
+    badge.style.color = '#047857';
+    badge.style.borderColor = '#a7f3d0';
+  } else if (aiHasServerKey) {
+    badge.innerText = '✓ AI Ready (Server Key)';
     badge.style.background = '#ecfdf5';
     badge.style.color = '#047857';
     badge.style.borderColor = '#a7f3d0';

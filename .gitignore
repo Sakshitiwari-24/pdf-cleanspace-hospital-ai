@@ -5,6 +5,7 @@ __pycache__/
 
 # Environment & Temp
 .env
+ai_config.json
 .venv
 env/
 venv/
@@ -23,5 +24,3 @@ package.json
 package-lock.json
 api/
 operator_stats.json
-
-.vercel
