@@ -3043,7 +3043,11 @@ async function runHospitalAiPipeline() {
           p.blank_reason = p.is_blank ? 'AI Vision: Blank/Empty page removed.' : `AI Vision: ${p.page_type}`;
         }
 
-        const rot = parseInt(a.suggested_rotation, 10);
+        const headerPosMap = { top: 0, left: 90, bottom: 180, right: 270 };
+        const hp = (a.header_position || '').trim().toLowerCase();
+        let rot = headerPosMap[hp] !== undefined ? headerPosMap[hp] : parseInt(a.suggested_rotation, 10);
+        if (isNaN(rot)) rot = 0;
+        rot = ((rot % 360) + 360) % 360;
         p.suggested_rotation = [0, 90, 180, 270].includes(rot) ? rot : 0;
         p.user_rotation = p.suggested_rotation;
         p.needs_rotation = p.suggested_rotation !== 0;
@@ -3089,9 +3093,9 @@ function normalizeAiGender(g) {
 
 function normalizeAiCategory(c) {
   const s = (c || '').trim().toLowerCase();
-  if (s.includes('retir') || s.includes('relhs') || s.includes('pension') || s.includes('ppo')) return 'Retired';
-  if (s.includes('fam') || s.includes('depend') || s.includes('spouse')) return 'Family';
-  if (s.includes('emp') || s.includes('self')) return 'Employee';
+  if (s.includes('fam') || s.includes('depend') || s.includes('spouse') || s.includes('wife') || s.includes('husband') || s.includes('son') || s.includes('daughter') || s.includes('mother') || s.includes('father') || s.includes('child')) return 'Family';
+  if (s.includes('retir') || s.includes('relhs') || s.includes('pension') || s.includes('ppo') || s.includes('ex-emp')) return 'Retired';
+  if (s.includes('emp') || s.includes('self') || s.includes('govt')) return 'Employee';
   return '';
 }
 
@@ -3108,6 +3112,13 @@ function buildPatientPacketsFromAi() {
   });
   if (currentGroup.length > 0) {
     groups.push(currentGroup);
+  }
+
+  // If leading pages before the first ADMISSION_CARD belong to that patient (or have no ADMISSION_CARD),
+  // merge them into the first ADMISSION_CARD group so the Admission Card is placed at Page 1 (front).
+  if (groups.length >= 2 && !groups[0].some(p => p.page_type === 'ADMISSION_CARD') && groups[1].some(p => p.page_type === 'ADMISSION_CARD')) {
+    const leading = groups.shift();
+    groups[0] = groups[0].concat(leading);
   }
 
   patientPackets = groups.map((groupPages, idx) => {

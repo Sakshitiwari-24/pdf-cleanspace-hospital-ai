@@ -194,6 +194,7 @@ Analyze the image carefully and return ONLY valid JSON with this exact schema:
   "is_blank": false,
   "is_medical_media": false,
   "page_type": "ADMISSION_CARD | DISCHARGE_SUMMARY | LAB_REPORT | ECG | XRAY_SCAN | CLINICAL_NOTES | SICK_MEMO | CONSENT_FORM | OTHER",
+  "header_position": "top | right | bottom | left",
   "suggested_rotation": 0,
   "scan_clarity": "clear | unclear",
   "clarity_reason": "",
@@ -214,12 +215,16 @@ CRITICAL RULES:
    - NEVER mark ECG strips, X-ray films, CT/MRI/USG scans, lab reports, handwritten clinical notes, vital charts, sick memos, consent forms, discharge summaries, or admission cards as blank!
    - If the page is an ECG strip, X-ray, ultrasound, CT/MRI, or imaging scan, set "is_medical_media": true and "is_blank": false.
 
-2. ROTATION (suggested_rotation):
-   - Determine the CLOCKWISE rotation in degrees (0, 90, 180, or 270) needed to make the page text/content upright and readable.
-   - 0 = already upright, 90 = rotated 90° counter-clockwise (needs 90° clockwise), 180 = upside down, 270 = rotated 90° clockwise (needs 270° clockwise).
+2. ROTATION (header_position & suggested_rotation):
+   - First determine where the TOP of the text/heading is currently pointing in the image:
+     * "top": text is normal and upright -> suggested_rotation = 0
+     * "left": page is tilted 90° counter-clockwise (top of text is on the LEFT edge) -> suggested_rotation = 90
+     * "bottom": page is upside down (top of text is at the BOTTOM edge) -> suggested_rotation = 180
+     * "right": page is tilted 90° clockwise (top of text is on the RIGHT edge, like sideways ECGs) -> suggested_rotation = 270
+   - Set "header_position" and "suggested_rotation" (0, 90, 180, or 270) consistently.
 
 3. PAGE TYPE (page_type):
-   - "ADMISSION_CARD": Has "ADMISSION CARD" header (front page of a patient's file).
+   - "ADMISSION_CARD": Has "ADMISSION CARD" / "ADMISSION FORM" / "PatientAdmission" header (front page of a patient's file).
    - "DISCHARGE_SUMMARY": Has "Discharge Summary".
    - "LAB_REPORT": Department of Laboratory Medicine / Hematology / Biochemistry / Serology.
    - "ECG": Electrocardiogram grid/waveform strip.
@@ -230,11 +235,11 @@ CRITICAL RULES:
    - "OTHER": Anything else.
 
 4. PATIENT DETAILS (extract whenever visible on ADMISSION_CARD, DISCHARGE_SUMMARY, LAB_REPORT, SICK_MEMO, etc.):
-   - "category":
-     * "Employee" if EMPLOYEE, EMPLOYEE(GENERAL), SELF, Central Govt Employee, or active duty Sick Memo.
-     * "Family" if FAMILY, DEPENDENT, DEPENDANT, SPOUSE, WIFE, HUSBAND, SON, DAUGHTER, FATHER, MOTHER, or dependent relation.
-     * "Retired" if RETIRED, RELHS, PENSIONER, PPO, or EX-EMPLOYEE.
-     * "Unknown" if unclear or not determinable.
+   - "category": Check BOTH the top-left header and the "CATEGORY :" / "Patient Category :" line carefully:
+     * "Family": If it says FAMILY, DEPENDENT, DEPENDANT, SPOUSE, WIFE, HUSBAND, SON, DAUGHTER, FATHER, MOTHER, CHILD, or any relation (W/O, S/O, D/O, C/O), EVEN IF combined with Employee or Retired/RELHS (e.g. "EMPLOYEE(FAMILY)" or "RELHS(FAMILY)").
+     * "Retired": If it says RETIRED, RELHS, PENSIONER, EX-EMPLOYEE, or PPO (and NOT Family/Dependent).
+     * "Employee": If it says EMPLOYEE(GENERAL), EMPLOYEE, SELF, or Central Govt Employee (and NOT Family/Dependent or Retired).
+     * "Unknown": Only if unclear or not determinable.
    - "name": Patient's full name (e.g. "DASRATH LAL").
    - "age": Digits only (e.g. "43" from "43 YR/M").
    - "gender": "Male" (M), "Female" (F), "Other" (O), or "Unknown".
